@@ -1,0 +1,30 @@
+{
+  "name": "Brua",
+  "id": "brua-development",
+  "api": "1.0.0",
+  "editorType": [
+    "figma",
+    "dev"
+  ],
+  "capabilities": [
+    "inspect"
+  ],
+  "main": "dist/code.js",
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.brua.dev",
+      "https://cdn.brua.dev",
+      "https://api-test.brua.dev",
+      "https://cdn-test.brua.dev",
+      "https://*.r2.cloudflarestorage.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:7800",
+      "http://localhost:8333",
+      "http://localhost:8787"
+    ],
+    "reasoning": "The plugin publishes layers to Brua: its API, the storage the API hands out upload addresses on, and its edge for previews. Local development uses the services from compose.yaml."
+  }
+}

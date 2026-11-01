@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  /* Figma's theme variables (themeColors: true) keep the window at home in light and dark Figma. */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 11px/16px Inter, system-ui, sans-serif;
+    color: var(--figma-color-text);
+    background: var(--figma-color-bg);
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  header h1 { flex: 1; margin: 0; font-size: 13px; font-weight: 600; }
+  main { padding: 16px; }
+  h2 { margin: 20px 0 4px; font-size: 11px; font-weight: 600; }
+  label { display: block; margin: 12px 0 6px; color: var(--figma-color-text-secondary); }
+  input[type="text"], input[type="password"], textarea, select {
+    display: block;
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 5px;
+    color: var(--figma-color-text);
+    background: var(--figma-color-bg);
+    font: inherit;
+  }
+  input[type="text"]:hover, input[type="password"]:hover, textarea:hover, select:hover { border-color: var(--figma-color-border-strong, var(--figma-color-border)); }
+  textarea { min-height: 52px; resize: vertical; }
+  textarea:disabled { opacity: 0.45; }
+  input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--figma-color-border-selected);
+    outline-offset: -1px;
+    border-color: transparent;
+  }
+  input[type="checkbox"] { margin: 0; accent-color: var(--figma-color-bg-brand); }
+  .check { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0; color: var(--figma-color-text); }
+  .check input { margin-top: 2px; }
+  .muted, .help { color: var(--figma-color-text-secondary); }
+  .help { margin-top: 6px; }
+
+  .account {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px 0 4px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .account:hover { background: var(--figma-color-bg-hover); }
+  .account .initial {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--figma-color-bg-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .account.signed-out .initial { display: none; }
+  .account.signed-out { padding: 0 8px; color: var(--figma-color-text-brand); font-weight: 500; }
+
+  .selection {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--figma-color-bg-secondary);
+  }
+  .selection svg { flex: none; color: var(--figma-color-icon-secondary, var(--figma-color-text-secondary)); }
+  .selection .text { min-width: 0; }
+  .selection .name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .selection .meta { color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+  .selection.empty .name { font-weight: 400; color: var(--figma-color-text-secondary); }
+
+  .alt-field label { display: flex; align-items: center; gap: 6px; }
+  .lang {
+    padding: 0 5px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 3px;
+    color: var(--figma-color-text-secondary);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+  }
+  .suggestion { margin-top: 6px; color: var(--figma-color-text-secondary); }
+  .suggestion button { padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); cursor: pointer; font: inherit; }
+  .suggestion button:hover { text-decoration: underline; }
+
+  .primary {
+    display: block;
+    width: 100%;
+    height: 32px;
+    margin-top: 20px;
+    border: 0;
+    border-radius: 5px;
+    color: var(--figma-color-text-onbrand);
+    background: var(--figma-color-bg-brand);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .primary:hover { background: var(--figma-color-bg-brand-hover, var(--figma-color-bg-brand)); }
+  .primary:disabled { opacity: 0.4; cursor: default; }
+  .secondary {
+    height: 28px;
+    margin-top: 12px;
+    padding: 0 12px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 5px;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .status {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--figma-color-bg-secondary);
+    white-space: pre-wrap;
+  }
+  .status:empty { display: none; }
+  .status.error { background: var(--figma-color-bg-danger-tertiary, var(--figma-color-bg-secondary)); color: var(--figma-color-text-danger); }
+  .status.done { background: var(--figma-color-bg-success-tertiary, var(--figma-color-bg-secondary)); color: var(--figma-color-text); }
+
+  .preview-frame {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 6px;
+    background-color: var(--figma-color-bg);
+    background-image: conic-gradient(var(--figma-color-bg-secondary) 25%, transparent 0 50%, var(--figma-color-bg-secondary) 0 75%, transparent 0);
+    background-size: 12px 12px;
+  }
+  .preview-frame[hidden] { display: none; }
+  .links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
+  .links[hidden] { display: none; }
+  .links a { color: var(--figma-color-text-brand); text-decoration: none; word-break: break-all; }
+  .links a:hover { text-decoration: underline; }
+  .preview-frame img { display: block; max-width: 100%; max-height: 220px; margin: 0 auto; }
+
+  details { margin-top: 24px; border-top: 1px solid var(--figma-color-border); }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    color: var(--figma-color-text-secondary);
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 14px; }
+  details[open] summary::after { content: "\2212"; }
+  details .group { padding: 4px 0 8px; }
+  details .group + .group { border-top: 1px solid var(--figma-color-border); }
+  #signed-in { margin-top: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <svg width="20" height="20" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+    <rect width="28" height="28" rx="6" fill="#13232F" />
+    <path d="M6 18.5v-3a8 8 0 0 1 16 0v3" stroke="#B0802A" stroke-width="2.4" stroke-linecap="round" />
+    <path d="M4.5 19h19" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" />
+  </svg>
+  <h1 id="title">Publish to Brua</h1>
+  <button id="account" class="account signed-out" type="button" aria-controls="settings"><span class="initial" aria-hidden="true"></span><span id="account-label">Sign in</span></button>
+</header>
+
+<main>
+<div id="selection" class="selection empty">
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M5 1v14M11 1v14M1 5h14M1 11h14" stroke="currentColor" stroke-width="1" />
+  </svg>
+  <div class="text">
+    <div id="selection-name" class="name">Select a frame or layer to publish.</div>
+    <div id="selection-meta" class="meta"></div>
+  </div>
+</div>
+
+<form id="form" hidden>
+  <label for="asset-id">Asset id</label>
+  <input id="asset-id" type="text" autocomplete="off" spellcheck="false" required
+         pattern="[a-z0-9]+(-[a-z0-9]+)*" aria-describedby="asset-id-help" />
+  <div id="asset-id-help" class="help">Lowercase letters and digits, separated by hyphens. Can't be changed later.</div>
+
+  <h2>Alt text</h2>
+  <div class="muted">Describe what the image communicates, include any text in it, and don't start with "Image of".</div>
+  <div id="alt-fields"></div>
+  <label class="check"><input id="decorative" type="checkbox" /> <span>Decorative: the image carries no information</span></label>
+
+  <button id="publish" class="primary" type="submit">Publish for review</button>
+</form>
+
+<div id="new-version" hidden>
+  <label class="check"><input id="same-meaning" type="checkbox" checked /> <span>The image still means the same: keep the alt text</span></label>
+  <div id="new-alt-fields"></div>
+  <button id="publish-version" class="primary" type="button">Publish a new version</button>
+  <button id="unlink" class="secondary" type="button">Forget the link</button>
+  <div class="help">For an asset deleted in Brua, or a layer published by mistake: the next publish makes a new asset.</div>
+</div>
+
+<div id="status" class="status" role="status" aria-live="polite"></div>
+<div id="preview-frame" class="preview-frame" hidden><img id="preview" alt="" /></div>
+<div id="links" class="links" hidden>
+  <a id="link-app" href="#">Open in Brua</a>
+  <a id="link-edge" href="#"></a>
+</div>
+
+<details id="settings">
+  <summary>Account and connection</summary>
+  <div class="group">
+    <label for="environment">Brua</label>
+    <select id="environment"></select>
+    <div id="signed-in" class="muted"></div>
+    <div id="sign-in-fields">
+      <label for="email">Email</label>
+      <input id="email" type="text" autocomplete="username" />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <button id="sign-in" class="primary" type="button">Sign in</button>
+    </div>
+    <button id="sign-out" class="secondary" type="button" hidden>Sign out</button>
+  </div>
+  <div id="project-group" class="group" hidden>
+    <label for="project">Project</label>
+    <select id="project"></select>
+    <div class="help">Where a new asset goes. A layer already published stays with its asset's project.</div>
+  </div>
+</details>
+</main>
+
+<script>
+  // The window: what the designer sees and types. Every call to Brua goes through the main thread (src/code.ts).
+  const $ = (id) => document.getElementById(id);
+  let settings = null;
+  let environments = {};
+  let languages = [];
+  let current = null;
+  let mode = "publish";
+
+  const send = (message) => parent.postMessage({ pluginMessage: message }, "*");
+
+  function setStatus(text, kind = "") {
+    $("status").textContent = text;
+    $("status").className = `status ${kind}`;
+  }
+
+  function setBusy(busy) {
+    $("publish").disabled = busy;
+    $("publish-version").disabled = busy;
+  }
+
+  function showEnvironments() {
+    const select = $("environment");
+    select.replaceChildren();
+    for (const [key, environment] of Object.entries(environments)) {
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = environment.label;
+      select.append(option);
+    }
+    select.value = settings.environment;
+  }
+
+  function showAccount() {
+    const signedIn = !!settings.signedIn;
+    $("signed-in").textContent = signedIn ? `Signed in as ${settings.email}.` : "Sign in with your Brua account to publish.";
+    $("email").value = settings.email || "";
+    $("sign-in-fields").hidden = signedIn;
+    $("sign-out").hidden = !signedIn;
+    $("account").classList.toggle("signed-out", !signedIn);
+    $("account").querySelector(".initial").textContent = settings.email?.[0] ?? "";
+    $("account-label").textContent = signedIn ? "Account" : "Sign in";
+    if (!signedIn) $("settings").open = true;
+  }
+
+  /** The projects the person may publish to, grouped by organization. */
+  function showProjects(projects) {
+    const select = $("project");
+    select.replaceChildren();
+    $("project-group").hidden = !projects;
+    if (!projects) return;
+    if (projects.length === 0) {
+      setStatus("You have no project to publish to. Ask an admin for an editor role.", "error");
+      return;
+    }
+    const groups = new Map();
+    for (const project of projects) {
+      if (!groups.has(project.organization)) groups.set(project.organization, []);
+      groups.get(project.organization).push(project);
+    }
+    for (const [organization, list] of groups) {
+      const group = document.createElement("optgroup");
+      group.label = organization;
+      for (const project of list) {
+        const option = document.createElement("option");
+        option.value = project.slug;
+        option.textContent = project.library ? `${project.name} (library)` : project.name;
+        group.append(option);
+      }
+      select.append(group);
+    }
+    select.value = settings.project;
+  }
+
+  function signIn() {
+    const email = $("email").value.trim();
+    const password = $("password").value;
+    $("password").value = "";
+    if (!email || !password) {
+      setStatus("Enter your email and password.", "error");
+      return;
+    }
+    setStatus("Signing in…");
+    send({ type: "sign-in", email, password });
+  }
+
+  function renderAltFields() {
+    const container = $("alt-fields");
+    container.replaceChildren();
+    for (const lang of languages) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "alt-field";
+      const label = document.createElement("label");
+      label.htmlFor = `alt-${lang}`;
+      const tag = document.createElement("span");
+      tag.className = "lang";
+      tag.textContent = lang;
+      label.append(tag, languageName(lang));
+      const field = document.createElement("textarea");
+      field.id = `alt-${lang}`;
+      field.lang = lang;
+      field.dataset.lang = lang;
+      wrapper.append(label, field);
+      container.append(wrapper);
+
+      if (current?.text) {
+        const suggestion = document.createElement("div");
+        suggestion.className = "suggestion muted";
+        const use = document.createElement("button");
+        use.type = "button";
+        use.textContent = "Use the text in the layer";
+        use.addEventListener("click", () => { field.value = current.text; field.focus(); });
+        suggestion.append(use, document.createTextNode(`: "${current.text}"`));
+        wrapper.append(suggestion);
+      }
+    }
+    applyDecorative();
+  }
+
+  function languageName(lang) {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "language" }).of(lang) ?? lang;
+    } catch {
+      return lang;
+    }
+  }
+
+  function applyDecorative() {
+    const decorative = $("decorative").checked;
+    for (const field of document.querySelectorAll("#alt-fields textarea")) field.disabled = decorative;
+  }
+
+  function describeSelection(name, meta) {
+    $("selection").classList.toggle("empty", meta === null);
+    $("selection-name").textContent = name;
+    $("selection-meta").textContent = meta ?? "";
+  }
+
+  function showPreview(url) {
+    $("preview-frame").hidden = !url;
+    if (url) $("preview").src = url;
+  }
+
+  /** The asset in the back office and its URL on the edge; Figma opens them in the browser. */
+  function showLinks(where) {
+    $("links").hidden = !where?.appUrl;
+    if (!where?.appUrl) return;
+    $("link-app").dataset.url = where.appUrl;
+    $("link-edge").dataset.url = where.edgeUrl ?? "";
+    $("link-edge").textContent = where.edgeUrl ?? "";
+    $("link-edge").hidden = !where.edgeUrl;
+  }
+
+  function showSelection(node, reason) {
+    current = node;
+    showPreview(null);
+    showLinks(null);
+    $("new-version").hidden = true;
+    if (!node) {
+      describeSelection(mode === "inspect" ? "Select a layer to see its Brua asset." : reason, null);
+      $("form").hidden = true;
+      return;
+    }
+    if (mode === "inspect") {
+      $("form").hidden = true;
+      if (node.linked) {
+        describeSelection(node.name, `${node.linked.assetId}, version ${node.linked.version} in ${node.linked.project}`);
+        showPreview(node.linked.previewUrl);
+        showLinks(node.linked);
+      } else {
+        describeSelection(node.name, "Not published to Brua yet. Publish from Design mode (Shift+D).");
+      }
+      return;
+    }
+    if (node.linked) {
+      describeSelection(node.name, `Published as ${node.linked.assetId}, version ${node.linked.version}`);
+      $("form").hidden = true;
+      $("new-version").hidden = false;
+      $("same-meaning").checked = true;
+      renderNewAltFields();
+      showPreview(node.linked.previewUrl);
+      showLinks(node.linked);
+      return;
+    }
+    describeSelection(node.name, `${node.width} × ${node.height}`);
+    $("form").hidden = false;
+    $("asset-id").value = node.suggestedId;
+    renderAltFields();
+  }
+
+  function publish(event) {
+    event.preventDefault();
+    if (!settings.signedIn) {
+      setStatus("Sign in under Account and connection to publish.", "error");
+      return;
+    }
+    const assetId = $("asset-id").value.trim();
+    const decorative = $("decorative").checked;
+    const alt = {};
+    for (const field of document.querySelectorAll("#alt-fields textarea")) {
+      if (!decorative) alt[field.dataset.lang] = field.value.trim();
+    }
+    if (!decorative && Object.values(alt).some((text) => text.length === 0)) {
+      setStatus(`Write alt text in every language (${languages.join(", ")}), or mark the image as decorative.`, "error");
+      return;
+    }
+    setBusy(true);
+    setStatus("Creating the asset…");
+    send({ type: "publish", assetId, alt: decorative ? null : alt, decorative });
+  }
+
+  // A new version keeps the alt text only after the designer confirms the image still means the same (SPEC.md 20.2).
+  function renderNewAltFields() {
+    const container = $("new-alt-fields");
+    container.replaceChildren();
+    if ($("same-meaning").checked) return;
+    for (const lang of languages) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "alt-field";
+      const label = document.createElement("label");
+      label.htmlFor = `new-alt-${lang}`;
+      const tag = document.createElement("span");
+      tag.className = "lang";
+      tag.textContent = lang;
+      label.append(tag, `New alt text, ${languageName(lang)}`);
+      const field = document.createElement("textarea");
+      field.id = `new-alt-${lang}`;
+      field.lang = lang;
+      field.dataset.lang = lang;
+      wrapper.append(label, field);
+      container.append(wrapper);
+    }
+  }
+
+  function publishVersion() {
+    if (!current?.linked) return;
+    let alt;
+    if (!$("same-meaning").checked) {
+      alt = {};
+      for (const field of document.querySelectorAll("#new-alt-fields textarea")) alt[field.dataset.lang] = field.value.trim();
+      if (Object.values(alt).some((text) => text.length === 0)) {
+        setStatus(`Write the new alt text in every language (${languages.join(", ")}).`, "error");
+        return;
+      }
+    }
+    setBusy(true);
+    setStatus("Creating a new version…");
+    send({ type: "publish-version", alt });
+  }
+
+  window.onmessage = (event) => {
+    const message = event.data.pluginMessage;
+    if (!message) return;
+    switch (message.type) {
+      case "settings":
+        settings = message.settings;
+        environments = message.environments;
+        mode = message.mode;
+        $("title").textContent = mode === "inspect" ? "Brua asset" : "Publish to Brua";
+        showEnvironments();
+        showAccount();
+        break;
+      case "account":
+        settings = { ...settings, signedIn: !!message.projects, project: message.project ?? settings.project };
+        showAccount();
+        showProjects(message.projects);
+        if (!message.projects) {
+          languages = [];
+          renderAltFields();
+        }
+        break;
+      case "project":
+        languages = message.languages;
+        renderAltFields();
+        if (languages.length > 0) {
+          $("settings").open = false;
+          setStatus("");
+        }
+        break;
+      case "selection":
+        showSelection(message.node, message.reason);
+        break;
+      case "status":
+        setStatus(message.text, message.kind);
+        break;
+      case "published":
+        setBusy(false);
+        showPreview(message.previewUrl);
+        showLinks(message);
+        setStatus(`${message.assetId} version ${message.version} is ready for review in the change set "${message.changeSet}". An approver merges it into prod in the back office.`, "done");
+        break;
+      case "error":
+        setBusy(false);
+        setStatus(message.message, "error");
+        break;
+    }
+  };
+
+  $("form").addEventListener("submit", publish);
+  $("decorative").addEventListener("change", applyDecorative);
+  $("sign-in").addEventListener("click", signIn);
+  $("password").addEventListener("keydown", (event) => { if (event.key === "Enter") signIn(); });
+  $("sign-out").addEventListener("click", () => send({ type: "sign-out" }));
+  $("account").addEventListener("click", () => {
+    $("settings").open = true;
+    $(settings?.signedIn ? "sign-out" : "email").focus();
+  });
+  $("same-meaning").addEventListener("change", renderNewAltFields);
+  $("publish-version").addEventListener("click", publishVersion);
+  $("unlink").addEventListener("click", () => send({ type: "unlink" }));
+  $("environment").addEventListener("change", () => send({ type: "set-environment", environment: $("environment").value }));
+  $("project").addEventListener("change", () => send({ type: "set-project", project: $("project").value }));
+  for (const id of ["link-app", "link-edge"]) {
+    $(id).addEventListener("click", (event) => {
+      event.preventDefault();
+      if ($(id).dataset.url) send({ type: "open", url: $(id).dataset.url });
+    });
+  }
+  send({ type: "ready" });
+</script>
+</body>
+</html>

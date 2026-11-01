@@ -1,0 +1,17 @@
+{
+  "name": "brua-figma-plugin",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2017",
+    "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2017 --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.120.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
