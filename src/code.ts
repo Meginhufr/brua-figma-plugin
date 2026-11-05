@@ -1,7 +1,7 @@
 // Runs in Figma's plugin sandbox: reads the selection, exports it, talks to Brua and links the layer to its asset.
 // The network calls live here, not in the window: Figma's main-thread fetch goes by the manifest's allowed domains,
 // while the window's null origin would need CORS exceptions on the API and storage (SPEC.md 20.1).
-import { ApiError, BruaApi, ENVIRONMENTS, type Environment, type Me } from "./api";
+import { ApiError, BruaApi, ENVIRONMENTS, type Environment, type Fill, type Me } from "./api";
 
 const NAMESPACE = "brua";
 const SETTINGS_KEY = "brua-settings";
@@ -12,11 +12,15 @@ const DEFAULT_SETTINGS: Settings = { environment: "prod", project: "" };
 type UiMessage =
   | { type: "ready" }
   | { type: "sign-in"; email: string; password: string }
+  | { type: "two-factor-code"; code: string }
+  | { type: "two-factor-cancel" }
+  | { type: "browser-sign-in" }
+  | { type: "browser-sign-in-cancel" }
   | { type: "sign-out" }
   | { type: "set-environment"; environment: Environment }
   | { type: "set-project"; project: string }
-  | { type: "publish"; assetId: string; alt: Record<string, string> | null; decorative: boolean }
-  | { type: "publish-version"; alt?: Record<string, string> }
+  | ({ type: "publish"; assetId: string; alt: Record<string, string> | null; decorative: boolean } & Fill)
+  | ({ type: "publish-version"; alt?: Record<string, string> } & Fill)
   | { type: "open"; url: string }
   | { type: "unlink" };
 
@@ -87,6 +91,40 @@ function describeInFigma(node: SceneNode, assetId: string, version: number, proj
   }
 }
 
+/**
+ * How a layout's box should hold what is selected, as a first suggestion: an image fill set to Fit is shown whole, one
+ * that fills or crops fills its box; a layer of vectors and text alone, such as a logo or an icon, is shown whole;
+ * anything else fills its box, Brua's own default for a flexible asset.
+ */
+function suggestedFit(node: SceneNode): "contain" | "cover" {
+  const layers: SceneNode[] = [node, ...("findAll" in node ? node.findAll((n) => "fills" in n) : [])];
+  for (const layer of layers) {
+    if (!("fills" in layer) || !Array.isArray(layer.fills)) continue;
+    for (const paint of layer.fills as readonly Paint[]) {
+      if (paint.type === "IMAGE" && paint.visible !== false) return paint.scaleMode === "FIT" ? "contain" : "cover";
+    }
+  }
+  return "contain";
+}
+
+/**
+ * What the window needs to place the fill point: a small export of the layer, and for a linked layer the fill its newest
+ * version has, which a new version starts from. Sent after the selection, since both take a moment.
+ */
+async function sendFill(node: SceneNode, linked: { assetId: string; project: string } | null): Promise<void> {
+  let fill: { objectFit?: string; objectPosition?: string } = {};
+  if (linked && settings.token) {
+    try {
+      fill = await api().fill(linked.project, linked.assetId);
+    } catch {
+      // The suggestion from the layer stands.
+    }
+  }
+  const bytes = await (node as ExportMixin).exportAsync({ format: "PNG", constraint: { type: "WIDTH", value: 320 } });
+  if (selectedId !== node.id) return;
+  post({ type: "fill", nodeId: node.id, ...fill, thumbnail: `data:image/png;base64,${figma.base64Encode(bytes)}` });
+}
+
 function describeSelection() {
   const selection = figma.currentPage.selection;
   if (selection.length !== 1) {
@@ -107,6 +145,8 @@ function describeSelection() {
   post({
     type: "selection",
     node: {
+      id: node.id,
+      suggestedFit: suggestedFit(node),
       name: node.name,
       width: Math.round(node.width),
       height: Math.round(node.height),
@@ -117,6 +157,11 @@ function describeSelection() {
         : null,
     },
   });
+  if ("exportAsync" in node) {
+    sendFill(node, linkedId ? { assetId: linkedId, project: linkedProject } : null).catch(() => {
+      // Without a thumbnail the window places the point without one.
+    });
+  }
 }
 
 async function selectedNode(): Promise<SceneNode> {
@@ -193,7 +238,7 @@ async function publish(project: string, assetId: string, create: (client: BruaAp
     // Already linked, or Dev Resources aren't available in this file.
   }
   figma.notify(`Published as ${assetId}`);
-  post({ type: "published", assetId, version: created.version, changeSet: changeSet.name, ...where });
+  post({ type: "published", assetId, version: created.version, changeSet: changeSet.name, inReview: changeSet.status === "submitted", ...where });
   describeSelection();
 }
 
@@ -206,6 +251,56 @@ async function failed(error: unknown): Promise<void> {
 }
 
 figma.on("selectionchange", describeSelection);
+
+/** A sign-in waiting for its authenticator code: the challenge the password earned, and whose it is. */
+let twoFactor: { email: string; token: string } | undefined;
+
+/** The sign-in waiting for the person in the browser; replaced or cleared to stop collecting for it. */
+let browserSignIn: { secret: string; url: string } | undefined;
+
+/**
+ * Hands sign-in to the browser: the back office's page signs the person in however they sign in there, a passkey
+ * included, which this window can't do with no origin of its own, and the token is collected here once they approve.
+ */
+async function signInWithBrowser(): Promise<void> {
+  const environment = settings.environment;
+  const client = new BruaApi(ENVIRONMENTS[environment].api, fetch);
+  const started = await client.startSignIn();
+  const mine = { secret: started.secret, url: started.url };
+  browserSignIn = mine;
+  post({ type: "browser-sign-in", code: started.code, url: started.url });
+  figma.openExternal(started.url);
+
+  const until = Date.parse(started.expiresAt);
+  while (browserSignIn === mine && Date.now() < until) {
+    await sleep(started.intervalSeconds * 1000);
+    if (browserSignIn !== mine) return;
+    let token: string | null;
+    try {
+      token = await client.collectSignIn(mine.secret);
+    } catch (error) {
+      if (browserSignIn !== mine) return;
+      // A dropped connection or a busy API is asked again on the next round.
+      if (error instanceof ApiError && (error.status === 0 || error.status === 429)) continue;
+      browserSignIn = undefined;
+      if (error instanceof ApiError && error.code === "sign_in_declined") throw new Error("The sign-in was declined in the browser.");
+      if (error instanceof ApiError && error.code === "sign_in_expired") {
+        post({ type: "browser-sign-in-expired" });
+        return;
+      }
+      throw error;
+    }
+    if (!token) continue;
+    browserSignIn = undefined;
+    await saveSettings({ token, email: (await new BruaApi(ENVIRONMENTS[environment].api, fetch, token).me()).email });
+    sendSettings();
+    await sendAccount();
+    return;
+  }
+  if (browserSignIn !== mine) return;
+  browserSignIn = undefined;
+  post({ type: "browser-sign-in-expired" });
+}
 
 figma.ui.onmessage = async (message: UiMessage) => {
   try {
@@ -220,24 +315,66 @@ figma.ui.onmessage = async (message: UiMessage) => {
         break;
       }
       case "sign-in": {
+        let result: { accessToken: string; twoFactorToken?: string };
         try {
-          const token = await new BruaApi(ENVIRONMENTS[settings.environment].api, fetch).login(message.email, message.password);
-          await saveSettings({ email: message.email, token });
+          result = await new BruaApi(ENVIRONMENTS[settings.environment].api, fetch).login(message.email, message.password);
         } catch (error) {
           if (error instanceof ApiError && error.status === 401) throw new Error("The email or password is wrong.");
           throw error;
         }
+        if (result.twoFactorToken) {
+          // The password was right; the code from the authenticator comes in the next message, within five minutes.
+          twoFactor = { email: message.email, token: result.twoFactorToken };
+          post({ type: "two-factor" });
+          break;
+        }
+        await saveSettings({ email: message.email, token: result.accessToken });
         sendSettings();
         await sendAccount();
         break;
       }
+      case "two-factor-code": {
+        if (!twoFactor) throw new Error("Sign in with your password first.");
+        let token: string;
+        try {
+          token = await new BruaApi(ENVIRONMENTS[settings.environment].api, fetch).loginTwoFactor(twoFactor.token, message.code);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 401 && error.code === "challenge_expired") {
+            // Five minutes passed, or the account changed under it: back to the password.
+            twoFactor = undefined;
+            post({ type: "two-factor-expired" });
+            break;
+          }
+          if (error instanceof ApiError && error.status === 401) throw new Error("That code isn't right. Codes change every 30 seconds; try the current one.");
+          throw error;
+        }
+        await saveSettings({ email: twoFactor.email, token });
+        twoFactor = undefined;
+        sendSettings();
+        await sendAccount();
+        break;
+      }
+      case "two-factor-cancel":
+        twoFactor = undefined;
+        break;
+      case "browser-sign-in":
+        twoFactor = undefined;
+        await signInWithBrowser();
+        break;
+      case "browser-sign-in-cancel":
+        browserSignIn = undefined;
+        break;
       case "sign-out":
+        twoFactor = undefined;
+        browserSignIn = undefined;
         await saveSettings({ token: undefined });
         sendSettings();
         await sendAccount();
         break;
       case "set-environment":
-        // Another environment means another account: the token stays with the one it was issued by.
+        // Another environment means another account: the token, and a sign-in half done, stay with the one that issued them.
+        twoFactor = undefined;
+        browserSignIn = undefined;
         await saveSettings({ environment: message.environment, token: undefined, project: "" });
         sendSettings();
         await sendAccount();
@@ -249,7 +386,10 @@ figma.ui.onmessage = async (message: UiMessage) => {
         break;
       case "publish":
         await publish(settings.project, message.assetId, (client) =>
-          client.createAsset(settings.project, { id: message.assetId, preset: "flexible", alt: message.alt, decorative: message.decorative }));
+          client.createAsset(settings.project, {
+            id: message.assetId, preset: "flexible", alt: message.alt, decorative: message.decorative,
+            objectFit: message.objectFit, objectPosition: message.objectPosition,
+          }));
         break;
       case "publish-version": {
         // The layer stays with its asset's project, whichever project the window shows.
@@ -257,7 +397,9 @@ figma.ui.onmessage = async (message: UiMessage) => {
         const assetId = node.getSharedPluginData(NAMESPACE, "assetId");
         const project = node.getSharedPluginData(NAMESPACE, "project") || settings.project;
         if (!assetId) throw new Error("This layer isn't linked to a Brua asset yet.");
-        await publish(project, assetId, (client) => client.createVersion(project, assetId, message.alt ? { alt: message.alt } : {}));
+        await publish(project, assetId, (client) => client.createVersion(project, assetId, {
+          ...(message.alt ? { alt: message.alt } : {}), objectFit: message.objectFit, objectPosition: message.objectPosition,
+        }));
         break;
       }
       case "open":

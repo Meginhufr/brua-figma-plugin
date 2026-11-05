@@ -106,6 +106,19 @@
   .suggestion button { padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); cursor: pointer; font: inherit; }
   .suggestion button:hover { text-decoration: underline; }
 
+  .password-sign-in { margin-top: 16px; }
+  .password-sign-in > summary { color: var(--figma-color-text-secondary); cursor: pointer; }
+  .browser-code {
+    margin: 10px 0 4px;
+    padding: 10px 0;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 5px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 20px;
+    letter-spacing: 0.12em;
+    text-align: center;
+  }
+
   .primary {
     display: block;
     width: 100%;
@@ -162,6 +175,44 @@
   .links a { color: var(--figma-color-text-brand); text-decoration: none; word-break: break-all; }
   .links a:hover { text-decoration: underline; }
   .preview-frame img { display: block; max-width: 100%; max-height: 220px; margin: 0 auto; }
+
+  /* How a layout shows it: the fit and the fill point (docs/superpowers/specs/2026-11-05-object-fit-design.md). */
+  .fill[hidden] { display: none; }
+  .fit { display: flex; margin: 4px 0 6px; padding: 2px; border: 1px solid var(--figma-color-border); border-radius: 6px; }
+  .fit button {
+    flex: 1;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--figma-color-text-secondary);
+    font: inherit;
+    cursor: pointer;
+  }
+  .fit button[aria-pressed="true"] { background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
+  .fill-stage {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 6px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 4px;
+    cursor: crosshair;
+    line-height: 0;
+  }
+  .fill-stage[hidden] { display: none; }
+  .fill-stage:focus-visible { outline: 2px solid var(--figma-color-border-brand-strong, var(--figma-color-border-brand)); outline-offset: 2px; }
+  .fill-stage img { display: block; max-width: 100%; max-height: 140px; pointer-events: none; user-select: none; }
+  .fill-point {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid #FFFFFF;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+  }
 
   details { margin-top: 24px; border-top: 1px solid var(--figma-color-border); }
   summary {
@@ -226,6 +277,16 @@
   <div class="help">For an asset deleted in Brua, or a layer published by mistake: the next publish makes a new asset.</div>
 </div>
 
+<div id="fill" class="fill" hidden>
+  <h2>How a layout shows it</h2>
+  <div class="fit" role="group" aria-label="How a layout shows it">
+    <button id="fit-contain" type="button" aria-pressed="false">Show the whole image</button>
+    <button id="fit-cover" type="button" aria-pressed="false">Fill the box</button>
+  </div>
+  <div id="fill-help" class="muted"></div>
+  <div id="fill-stage" class="fill-stage" role="button" tabindex="0" hidden><img id="fill-image" alt="" /><span id="fill-point" class="fill-point"></span></div>
+</div>
+
 <div id="status" class="status" role="status" aria-live="polite"></div>
 <div id="preview-frame" class="preview-frame" hidden><img id="preview" alt="" /></div>
 <div id="links" class="links" hidden>
@@ -240,11 +301,28 @@
     <select id="environment"></select>
     <div id="signed-in" class="muted"></div>
     <div id="sign-in-fields">
-      <label for="email">Email</label>
-      <input id="email" type="text" autocomplete="username" />
-      <label for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password" />
-      <button id="sign-in" class="primary" type="button">Sign in</button>
+      <button id="browser-sign-in" class="primary" type="button">Sign in with the browser</button>
+      <div class="help">Opens Brua in your browser, where you sign in as usual: with a passkey, or your password and code.</div>
+      <details id="password-sign-in" class="password-sign-in">
+        <summary>Sign in with email and password</summary>
+        <label for="email">Email</label>
+        <input id="email" type="text" autocomplete="username" />
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+        <button id="sign-in" class="secondary" type="button">Sign in</button>
+      </details>
+    </div>
+    <div id="browser-fields" hidden>
+      <div class="muted">Approve the sign-in in your browser. Check that it shows this code:</div>
+      <div id="browser-code" class="browser-code"></div>
+      <button id="browser-reopen" class="secondary" type="button">Open the page again</button>
+      <button id="browser-cancel" class="secondary" type="button">Cancel</button>
+    </div>
+    <div id="two-factor-fields" hidden>
+      <label for="two-factor-code">Code from your authenticator app</label>
+      <input id="two-factor-code" type="text" inputmode="numeric" autocomplete="one-time-code" />
+      <button id="two-factor-continue" class="primary" type="button">Continue</button>
+      <button id="two-factor-back" class="secondary" type="button">Start over</button>
     </div>
     <button id="sign-out" class="secondary" type="button" hidden>Sign out</button>
   </div>
@@ -260,9 +338,17 @@
   // The window: what the designer sees and types. Every call to Brua goes through the main thread (src/code.ts).
   const $ = (id) => document.getElementById(id);
   let settings = null;
+  let awaitingCode = false;
+  /** The sign-in waiting in the browser: the code both show, and its page to open again. */
+  let awaitingBrowser = null;
   let environments = {};
   let languages = [];
   let current = null;
+  // How a layout's box holds the asset: suggested from the layer, or the linked asset's own, until the designer changes it.
+  let fill = { objectFit: "cover", objectPosition: "50% 50%" };
+  // Whether the fill is the asset's or the designer's choice, not only a guess: a new version sends it only then, so
+  // publishing before a linked asset's own fill has arrived can't change it by accident.
+  let fillKnown = false;
   let mode = "publish";
 
   const send = (message) => parent.postMessage({ pluginMessage: message }, "*");
@@ -293,7 +379,12 @@
     const signedIn = !!settings.signedIn;
     $("signed-in").textContent = signedIn ? `Signed in as ${settings.email}.` : "Sign in with your Brua account to publish.";
     $("email").value = settings.email || "";
-    $("sign-in-fields").hidden = signedIn;
+    if (signedIn) awaitingCode = false;
+    if (signedIn) awaitingBrowser = null;
+    $("sign-in-fields").hidden = signedIn || awaitingCode || !!awaitingBrowser;
+    $("two-factor-fields").hidden = signedIn || !awaitingCode;
+    $("browser-fields").hidden = signedIn || !awaitingBrowser;
+    if (awaitingBrowser) $("browser-code").textContent = awaitingBrowser.code;
     $("sign-out").hidden = !signedIn;
     $("account").classList.toggle("signed-out", !signedIn);
     $("account").querySelector(".initial").textContent = settings.email?.[0] ?? "";
@@ -340,6 +431,16 @@
     }
     setStatus("Signing in…");
     send({ type: "sign-in", email, password });
+  }
+
+  function continueTwoFactor() {
+    const code = $("two-factor-code").value.trim();
+    if (!code) {
+      setStatus("Enter the code.", "error");
+      return;
+    }
+    setStatus("Checking…");
+    send({ type: "two-factor-code", code });
   }
 
   function renderAltFields() {
@@ -409,8 +510,38 @@
     $("link-edge").hidden = !where.edgeUrl;
   }
 
+  function showFill() {
+    const cover = fill.objectFit === "cover";
+    $("fit-contain").setAttribute("aria-pressed", String(!cover));
+    $("fit-cover").setAttribute("aria-pressed", String(cover));
+    $("fill-help").textContent = cover
+      ? "A box of another shape is filled and the rest cropped. Click the image where the crop should stay in view."
+      : "A box of another shape shows all of it, with space around. Click the image to choose where it sits.";
+    const [x, y] = fill.objectPosition.split(" ");
+    $("fill-point").style.left = x;
+    $("fill-point").style.top = y;
+    $("fill-stage").setAttribute("aria-label", `${cover ? "Fill point" : "Position"}: ${fill.objectPosition}. Click, or use the arrow keys, to move it.`);
+  }
+
+  function setPosition(x, y) {
+    const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+    fill = { ...fill, objectPosition: `${clamp(x)}% ${clamp(y)}%` };
+    fillKnown = true;
+    showFill();
+  }
+
   function showSelection(node, reason) {
     current = node;
+    $("fill").hidden = !node || mode === "inspect";
+    $("fill-stage").hidden = true;
+    if (node) {
+      fill = { objectFit: node.suggestedFit, objectPosition: "50% 50%" };
+      fillKnown = !node.linked;
+      showFill();
+      // One block for both forms, just above the button that publishes it.
+      const button = $(node.linked ? "publish-version" : "publish");
+      button.parentNode.insertBefore($("fill"), button);
+    }
     showPreview(null);
     showLinks(null);
     $("new-version").hidden = true;
@@ -464,7 +595,7 @@
     }
     setBusy(true);
     setStatus("Creating the asset…");
-    send({ type: "publish", assetId, alt: decorative ? null : alt, decorative });
+    send({ type: "publish", assetId, alt: decorative ? null : alt, decorative, ...fill });
   }
 
   // A new version keeps the alt text only after the designer confirms the image still means the same (SPEC.md 20.2).
@@ -503,7 +634,7 @@
     }
     setBusy(true);
     setStatus("Creating a new version…");
-    send({ type: "publish-version", alt });
+    send({ type: "publish-version", alt, ...(fillKnown ? fill : {}) });
   }
 
   window.onmessage = (event) => {
@@ -538,6 +669,17 @@
       case "selection":
         showSelection(message.node, message.reason);
         break;
+      case "fill":
+        // A thumbnail to place the point on, and a linked asset's own fill; late for a layer no longer selected, ignored.
+        if (message.nodeId !== current?.id) break;
+        if (message.objectFit) {
+          fill = { objectFit: message.objectFit, objectPosition: message.objectPosition ?? "50% 50%" };
+          fillKnown = true;
+        }
+        $("fill-image").src = message.thumbnail;
+        $("fill-stage").hidden = false;
+        showFill();
+        break;
       case "status":
         setStatus(message.text, message.kind);
         break;
@@ -545,10 +687,38 @@
         setBusy(false);
         showPreview(message.previewUrl);
         showLinks(message);
-        setStatus(`${message.assetId} version ${message.version} is ready for review in the change set "${message.changeSet}". An approver merges it into prod in the back office.`, "done");
+        setStatus(message.inReview
+          ? `${message.assetId} version ${message.version} is in review in the change set "${message.changeSet}", and the approvers have an email. An approver merges it into prod in the back office.`
+          : `${message.assetId} version ${message.version} is ready for review in the change set "${message.changeSet}". An approver merges it into prod in the back office.`, "done");
+        break;
+      case "browser-sign-in":
+        awaitingBrowser = { code: message.code, url: message.url };
+        showAccount();
+        setStatus("Waiting for the browser…");
+        break;
+      case "browser-sign-in-expired":
+        awaitingBrowser = null;
+        showAccount();
+        setStatus("The sign-in wasn't approved in time. Start again.", "error");
+        break;
+      case "two-factor-expired":
+        awaitingCode = false;
+        showAccount();
+        setStatus("That took too long. Sign in again.", "error");
+        break;
+      case "two-factor":
+        awaitingCode = true;
+        showAccount();
+        $("two-factor-code").value = "";
+        $("two-factor-code").focus();
+        setStatus("The password is right. Enter the six-digit code from your authenticator app, or a recovery code.");
         break;
       case "error":
         setBusy(false);
+        if (awaitingBrowser) {
+          awaitingBrowser = null;
+          showAccount();
+        }
         setStatus(message.message, "error");
         break;
     }
@@ -556,16 +726,35 @@
 
   $("form").addEventListener("submit", publish);
   $("decorative").addEventListener("change", applyDecorative);
+  $("browser-sign-in").addEventListener("click", () => { setStatus("Opening the browser…"); send({ type: "browser-sign-in" }); });
+  $("browser-reopen").addEventListener("click", () => { if (awaitingBrowser) send({ type: "open", url: awaitingBrowser.url }); });
+  $("browser-cancel").addEventListener("click", () => { awaitingBrowser = null; showAccount(); setStatus(""); send({ type: "browser-sign-in-cancel" }); });
   $("sign-in").addEventListener("click", signIn);
   $("password").addEventListener("keydown", (event) => { if (event.key === "Enter") signIn(); });
+  $("two-factor-continue").addEventListener("click", continueTwoFactor);
+  $("two-factor-code").addEventListener("keydown", (event) => { if (event.key === "Enter") continueTwoFactor(); });
+  $("two-factor-back").addEventListener("click", () => { awaitingCode = false; showAccount(); setStatus(""); send({ type: "two-factor-cancel" }); });
   $("sign-out").addEventListener("click", () => send({ type: "sign-out" }));
   $("account").addEventListener("click", () => {
     $("settings").open = true;
-    $(settings?.signedIn ? "sign-out" : "email").focus();
+    $(settings?.signedIn ? "sign-out" : "browser-sign-in").focus();
   });
   $("same-meaning").addEventListener("change", renderNewAltFields);
   $("publish-version").addEventListener("click", publishVersion);
   $("unlink").addEventListener("click", () => send({ type: "unlink" }));
+  $("fit-contain").addEventListener("click", () => { fill = { ...fill, objectFit: "contain" }; fillKnown = true; showFill(); });
+  $("fit-cover").addEventListener("click", () => { fill = { ...fill, objectFit: "cover" }; fillKnown = true; showFill(); });
+  $("fill-stage").addEventListener("click", (event) => {
+    const box = $("fill-image").getBoundingClientRect();
+    setPosition(((event.clientX - box.left) / box.width) * 100, ((event.clientY - box.top) / box.height) * 100);
+  });
+  $("fill-stage").addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: [-5, 0], ArrowRight: [5, 0], ArrowUp: [0, -5], ArrowDown: [0, 5] }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const [x, y] = fill.objectPosition.split(" ").map((v) => parseInt(v, 10));
+    setPosition(x + step[0], y + step[1]);
+  });
   $("environment").addEventListener("change", () => send({ type: "set-environment", environment: $("environment").value }));
   $("project").addEventListener("change", () => send({ type: "set-project", project: $("project").value }));
   for (const id of ["link-app", "link-edge"]) {

@@ -28,6 +28,15 @@ export interface Me {
   projects: { project: string; role: string; owner: boolean; name: string; library: boolean; organization: string }[];
 }
 
+/** A sign-in handed to the browser: the page to open there, the code both show, and the secret that collects the token. */
+export interface SignInRequest {
+  code: string;
+  secret: string;
+  url: string;
+  expiresAt: string;
+  intervalSeconds: number;
+}
+
 export interface Project {
   slug: string;
   name: string;
@@ -60,6 +69,12 @@ export class ApiError extends Error {
   }
 }
 
+/** How a layout's box holds a version (docs/superpowers/specs/2026-11-05-object-fit-design.md): "contain" or "cover", and "x% y%". */
+export interface Fill {
+  objectFit?: string;
+  objectPosition?: string;
+}
+
 export class BruaApi {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchLike;
@@ -71,10 +86,35 @@ export class BruaApi {
     this.token = token;
   }
 
-  async login(email: string, password: string): Promise<string> {
-    const { accessToken } = await this.request<{ accessToken: string }>("/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  /** The access token, or, for an account with two-factor on, the five-minute challenge `loginTwoFactor` takes. */
+  async login(email: string, password: string): Promise<{ accessToken: string; twoFactorToken?: string }> {
+    const result = await this.request<{ accessToken: string; twoFactorRequired?: boolean; twoFactorToken?: string }>(
+      "/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+    if (result.twoFactorRequired) return { accessToken: "", twoFactorToken: result.twoFactorToken };
+    this.token = result.accessToken;
+    return { accessToken: result.accessToken };
+  }
+
+  async loginTwoFactor(twoFactorToken: string, code: string): Promise<string> {
+    const { accessToken } = await this.request<{ accessToken: string }>("/v1/auth/login/two-factor", { method: "POST", body: JSON.stringify({ twoFactorToken, code }) });
     this.token = accessToken;
     return accessToken;
+  }
+
+  /** Starts a sign-in the person approves in the browser, with whatever they sign in with there: a passkey too. */
+  startSignIn(): Promise<SignInRequest> {
+    return this.request("/v1/auth/sign-in-requests", { method: "POST", body: JSON.stringify({ client: "figma" }) });
+  }
+
+  /**
+   * The access token once the person approved, or null while they haven't answered (202, no body). Declined is
+   * `sign_in_declined`, gone or collected already `sign_in_expired`.
+   */
+  async collectSignIn(secret: string): Promise<string | null> {
+    const result = await this.request<{ accessToken: string } | null>("/v1/auth/sign-in-requests/token", { method: "POST", body: JSON.stringify({ secret }) });
+    if (!result) return null;
+    this.token = result.accessToken;
+    return result.accessToken;
   }
 
   me(): Promise<Me> {
@@ -85,11 +125,11 @@ export class BruaApi {
     return this.request(`/v1/projects/${slug}`);
   }
 
-  createAsset(project: string, body: { id: string; preset: string; alt: Record<string, string> | null; decorative: boolean }): Promise<Version> {
+  createAsset(project: string, body: Fill & { id: string; preset: string; alt: Record<string, string> | null; decorative: boolean }): Promise<Version> {
     return this.request(`/v1/projects/${project}/assets`, { method: "POST", body: JSON.stringify(body) });
   }
 
-  createVersion(project: string, id: string, body: { alt?: Record<string, string> }): Promise<Version> {
+  createVersion(project: string, id: string, body: Fill & { alt?: Record<string, string> }): Promise<Version> {
     return this.request(`/v1/projects/${project}/assets/${id}/versions`, { method: "POST", body: JSON.stringify(body) });
   }
 
@@ -121,6 +161,13 @@ export class BruaApi {
   }
 
   /** The version's single URL on the edge, for a preview; empty when the API doesn't list it. */
+  /** How the asset's newest version fills a box, for the next version to start from. */
+  async fill(project: string, id: string): Promise<Fill> {
+    const detail = await this.request<{ versions: { objectFit?: string; objectPosition?: string }[] }>(`/v1/projects/${project}/assets/${id}/versions`);
+    const newest = detail.versions[0];
+    return { objectFit: newest?.objectFit, objectPosition: newest?.objectPosition };
+  }
+
   async versionUrl(project: string, id: string, version: number): Promise<string> {
     const detail = await this.request<{ versions: { version: number; url: string }[] }>(`/v1/projects/${project}/assets/${id}/versions`);
     const found = detail.versions.find((v) => v.version === version);

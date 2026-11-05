@@ -11,7 +11,9 @@ Publishes a selected frame or layer to Brua, with alt text, and links the layer 
    npm run build          # or `npm run watch` while changing src/
    ```
 2. In the **Figma desktop app** (the browser version can't load local plugins): open any design file, then **Plugins → Development → Import plugin from manifest…** and choose `figma-plugin/manifest.json`.
-3. Run it from **Plugins → Development → Brua**. Sign in with your Brua account the first time; the token is kept in Figma's client storage, the password isn't. Pick the project to publish to from the ones you have a role in. Select a frame, check the asset id, write alt text in each of the project's languages (or use the text found in the layer), and press **Publish for review**.
+3. Run it from **Plugins → Development → Brua**. Sign in the first time with **Sign in with the browser**: Brua opens in your browser, you sign in there as usual (a passkey, or the password and the authenticator code) and approve the code the plugin shows, and the plugin collects its token (`POST /v1/auth/sign-in-requests`, then `…/token` every two seconds for up to ten minutes). Email and password in the plugin still work, under the link below the button. The token is kept in Figma's client storage, the password isn't. Pick the project to publish to from the ones you have a role in. Select a frame, check the asset id, write alt text in each of the project's languages (or use the text found in the layer), choose **How a layout shows it**, and press **Publish for review**.
+
+**How a layout shows it** is the asset's `objectFit` and `objectPosition`: *Show the whole image* (`contain`) or *Fill the box* (`cover`, the rest cropped), and a click on the thumbnail for the point the crop keeps in view (the arrow keys move it too). The plugin suggests one from the layer: an image fill set to **Fit** is shown whole and one that fills or crops fills its box, a layer of only vectors and text (a logo, an icon) is shown whole, and anything else fills its box. For a linked layer the choice starts from the asset's newest version, and a new version sends it only once that has been read or you change it, so publishing too quickly can't change it by accident.
 
 The version is processed and submitted for review in a change set; it goes live when an approver merges the change set in the back office (`app.brua.dev`, **Change sets**). The window then shows a preview, a link to the asset in the back office and its URL on the edge; Figma opens both in the browser. The layer remembers its asset: selecting it again shows the same, and **Publish a new version** keeps the alt text only if you confirm the image still means the same. A layer stays with its asset's project, whichever project the window shows.
 
@@ -23,7 +25,7 @@ In **Dev Mode** the file is read-only, so the plugin shows the Brua asset the se
 
 ## How it works
 
-- `src/code.ts` runs in Figma's sandbox: reads the selection, suggests an id from the layer name and alt text from its text layers, exports the layer as PNG at 2×, talks to Brua, and stores the asset id on the layer (`setSharedPluginData`) with a Dev Resource link for Dev Mode.
+- `src/code.ts` runs in Figma's sandbox: reads the selection, suggests an id from the layer name, alt text from its text layers and a fit from its fills, exports a 320 px thumbnail for the fill point, exports the layer as PNG at 2×, talks to Brua, and stores the asset id on the layer (`setSharedPluginData`) with a Dev Resource link for Dev Mode.
 - `src/api.ts` is the API as the plugin uses it: sign-in, the person's projects, creating an asset or a version, the presigned upload straight to storage, waiting for processing and submitting for review. It runs on the main thread on purpose: Figma's `fetch` there goes by the manifest's allowed domains, while the plugin window has a null origin and would need CORS exceptions on the API and storage.
 - `ui.html` is the plugin window: the form, the status and the preview. It only exchanges messages with the main thread.
 - `manifest.json` lists Brua's API, edge and storage under `allowedDomains` (what organization admins see when they approve the plugin) and the local services under `devAllowedDomains`.
@@ -35,4 +37,5 @@ Changing the environment signs you out, since a token belongs to the environment
 - Light and dark from variable modes, and per-language variants (`SPEC.md` 20.1): every publish is a flexible asset with one source.
 - Inserting assets from search, which needs a list endpoint in the API.
 - `width` and `height` come from the 2× export; the plugin should send the frame's designed size.
-- Signing in through the browser instead of a password in the plugin (`SPEC.md` 20.1), and publishing the plugin to the Figma community under a real id.
+
+The plugin was submitted to the Figma Community on 2026-11-02 under the id in `manifest.json`; the listing's icon and thumbnail come from `make-store.mjs`.
